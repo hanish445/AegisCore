@@ -1,0 +1,11 @@
+build/*.exe
+build/*.o
+build/logs/*
+
+fuzzer/__pychache__/
+*.pyc
+
+.DS_Store
+Thumbs.db
+
+.vscode/.history/
