@@ -62,7 +62,12 @@ void MMU::write8(uint16_t address, uint8_t value) {
         if (address < 0x4000) {
             int bank = value & (cart_type == MBC3 ? 0x7F : 0x1F);
             if (bank == 0) bank = 1;
-            current_rom_bank = bank;
+            if(cart_type == MBC1) {
+                current_rom_bank = (current_rom_bank & 0xE0) | bank;
+            }
+            else{
+                current_rom_bank = bank;
+            }
             return;
         }
         if (address < 0x6000) {
