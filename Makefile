@@ -1,6 +1,6 @@
 CXX = g++
-CXXFLAGS = -std=c++20 -Wall -Wextra -Isrc/include
-SRC = src/main.cpp
+CXXFLAGS = -std=c++20 -Wall -Wextra -Isrc
+SRC = src/main.cpp src/mmu/mmu.cpp
 OUT = build/AegisCore.exe
 
 all:

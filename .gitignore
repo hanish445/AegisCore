@@ -3,6 +3,7 @@ build/*.o
 build/logs/*
 
 fuzzer/__pychache__/
+fuzzer/corpus/*.gb
 *.pyc
 
 .DS_Store
