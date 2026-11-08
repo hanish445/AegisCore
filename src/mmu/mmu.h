@@ -39,6 +39,10 @@ public:
     uint8_t read8(uint16_t address) const;
     void write8(uint16_t address, uint8_t value);
 
+    void tick_div(){
+        memory[0xFF04]++;
+    }
+
     // 16-bit helper operations (Game Boy is Little-Endian)
     uint16_t read16(uint16_t address) const;
     void write16(uint16_t address, uint16_t value);

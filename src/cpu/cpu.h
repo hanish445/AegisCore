@@ -10,6 +10,7 @@ private:
     Registers& reg;
     MMU& mmu;
     bool ime = false;
+    bool halted = false;
 
     int divider_counter = 0;
     int timer_counter = 0;

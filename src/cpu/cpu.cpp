@@ -2,6 +2,7 @@
 #include <iostream>
 #include <iomanip>
 #include <cstdlib> // For exit()
+#include <fstream> //Für das schreiben in Dateien
 
 const int BASE_CYCLES[256] = {
     4, 12, 8,  8,  4,  4,  12, 4,  20, 8,  8,  8,  4,  4,  12, 4,
@@ -129,8 +130,7 @@ void CPU::update_timers(int cycles) {
     divider_counter += cycles;
     if (divider_counter >= 256) {
         divider_counter -= 256;
-        uint8_t div = mmu.read8(0xFF04);
-        mmu.write8(0xFF04, div + 1); // Note: bypassing write protection for DIV reset
+        mmu.tick_div();
     }
 
     // 2. TIMA Timer
@@ -164,6 +164,11 @@ void CPU::update_timers(int cycles) {
 int CPU::step() {
     check_interrupts();
 
+    if(halted) {
+        update_timers(4);
+        return 4;
+    }
+
     uint8_t opcode = mmu.read8(reg.pc);
     reg.pc++;
 
@@ -181,39 +186,44 @@ int CPU::step() {
 }
 
 void CPU::check_interrupts() {
-    if (ime) {
-        uint8_t ie = mmu.read8(0xFFFF);
-        uint8_t if_reg = mmu.read8(0xFF0F);
-        uint8_t masked = ie & if_reg;
+    // 1. Lese IE und IF unabhängig vom IME-Status
+    uint8_t ie = mmu.read8(0xFFFF);
+    uint8_t if_reg = mmu.read8(0xFF0F);
+    uint8_t masked = ie & if_reg;
 
-        if (masked > 0) {
-            // Find which interrupt was triggered (prioritized from bit 0 to 4)
-            int interrupt_bit = 0;
-            for (int i = 0; i < 5; i++) {
-                if (masked & (1 << i)) {
-                    interrupt_bit = i;
-                    break;
-                }
+    // 2. CPU aufwecken, sobald ein Interrupt ansteht (auch wenn IME false ist)
+    if (masked > 0) {
+        halted = false;
+    }
+
+    // 3. Interrupt-Vektor nur anspringen, wenn IME aktiviert ist
+    if (ime && masked > 0) {
+        // Find which interrupt was triggered (prioritized from bit 0 to 4)
+        int interrupt_bit = 0;
+        for (int i = 0; i < 5; i++) {
+            if (masked & (1 << i)) {
+                interrupt_bit = i;
+                break;
             }
+        }
 
-            // Disable further interrupts
-            ime = false;
+        // Disable further interrupts
+        ime = false;
 
-            // Clear the specific bit in IF
-            mmu.write8(0xFF0F, if_reg & ~(1 << interrupt_bit));
+        // Clear the specific bit in IF
+        mmu.write8(0xFF0F, if_reg & ~(1 << interrupt_bit));
 
-            // Push current PC to the stack
-            mmu.write8(--reg.sp, (reg.pc >> 8) & 0xFF);
-            mmu.write8(--reg.sp, reg.pc & 0xFF);
+        // Push current PC to the stack
+        mmu.write8(--reg.sp, (reg.pc >> 8) & 0xFF);
+        mmu.write8(--reg.sp, reg.pc & 0xFF);
 
-            // Jump to the corresponding interrupt vector address
-            switch (interrupt_bit) {
-                case 0: reg.pc = 0x0040; break; // VBlank
-                case 1: reg.pc = 0x0048; break; // LCD STAT
-                case 2: reg.pc = 0x0050; break; // Timer
-                case 3: reg.pc = 0x0058; break; // Serial
-                case 4: reg.pc = 0x0060; break; // Joypad
-            }
+        // Jump to the corresponding interrupt vector address
+        switch (interrupt_bit) {
+            case 0: reg.pc = 0x0040; break; // VBlank
+            case 1: reg.pc = 0x0048; break; // LCD STAT
+            case 2: reg.pc = 0x0050; break; // Timer
+            case 3: reg.pc = 0x0058; break; // Serial
+            case 4: reg.pc = 0x0060; break; // Joypad
         }
     }
 }
@@ -756,7 +766,7 @@ void CPU::execute_opcode(uint8_t opcode) {
         }
 
         case 0x76: // HALT 
-            // For now, act as a NOP. Full HALT logic requires interrupt wiring.
+            halted = true;
             break; 
         case 0x10: // STOP 
             fetch8(); // STOP is actually a 2-byte opcode (0x10 0x00)
@@ -900,13 +910,26 @@ void CPU::execute_opcode(uint8_t opcode) {
         case 0x67: reg.h = reg.a; break; // LD H, A
         case 0x6F: reg.l = reg.a; break; // LD L, A
 
-        default:
-            std::cerr << "[CPU] Warning: Unimplemented Opcode 0x" 
-                      << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(opcode) 
-                      << " at PC 0x" << (reg.pc - 1) << std::endl;
-            // Do not exit(1) here so the emulator can keep running or display frames
+        case 0xF9: { // LD SP, HL
+            reg.sp = reg.get_hl();
+            // Dieser Befehl benötigt 8 Zyklen. Da BASE_CYCLES[0xF9] bei dir
+            // momentan als 8 definiert ist, passt das automatisch.
+            break;
+        }
+
+        default: {
+            // Öffne oder erstelle eine Logdatei im selben Ordner
+            std::ofstream log_file("crash_log.txt", std::ios::app);
+            if (log_file.is_open()) {
+                log_file << "[CPU] Warning: Unimplemented Opcode 0x" 
+                         << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(opcode) 
+                         << " at PC 0x" << (reg.pc - 1) << std::endl;
+                log_file.close();
+            }
+            // Beende das Programm wie bisher
             std::exit(1);
+        }
     }
 }
 
-} // namespace Aegis
+} // namespace AegisS

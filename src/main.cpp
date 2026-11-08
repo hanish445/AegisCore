@@ -3,6 +3,8 @@
 #include "mmu/mmu.h"
 #include "cpu/cpu.h"
 #include "ppu/ppu.h"
+#include <chrono>
+#include <thread>
 
 // Global instances for the emulator components
 Aegis::MMU mmu;
@@ -76,26 +78,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ShowWindow(hwnd, nCmdShow);
 
     // 4. Main Emulation Loop
+    // 4. Main Emulation Loop
     MSG msg = {}; // {} avoids missing-initializer warnings
+    const int CYCLES_PER_FRAME = 70224; // 456 cycles * 154 scanlines
+    const double TARGET_FRAME_TIME_MS = 1000.0 / 59.7275; // Exact hardware framerate
+
     while (true) {
-        // Handle Windows events without blocking the emulator
+        auto frame_start = std::chrono::high_resolution_clock::now();
+
+        // 1. Handle Windows events without blocking the emulator
         while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_QUIT) return 0;
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
 
-        // --- Phase 2.3: Joypad Input ---
+        // 2. Joypad Input (Einmal pro Frame abfragen reicht völlig)
         uint8_t action = 0x0F;
         uint8_t dir = 0x0F;
 
-        // Action Buttons: Start (Enter), Select (Shift), B (Z), A (X)
         if (GetAsyncKeyState(VK_RETURN) & 0x8000) action &= ~0x08; // Start
         if (GetAsyncKeyState(VK_SHIFT)  & 0x8000) action &= ~0x04; // Select
         if (GetAsyncKeyState('Z')       & 0x8000) action &= ~0x02; // B
         if (GetAsyncKeyState('X')       & 0x8000) action &= ~0x01; // A
-
-        // Direction Pad: Arrow Keys
         if (GetAsyncKeyState(VK_DOWN)   & 0x8000) dir &= ~0x08; // Down
         if (GetAsyncKeyState(VK_UP)     & 0x8000) dir &= ~0x04; // Up
         if (GetAsyncKeyState(VK_LEFT)   & 0x8000) dir &= ~0x02; // Left
@@ -103,20 +108,28 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
         mmu.update_joypad(action, dir);
 
-        // TODO: Replace '4' with the actual cycle count of the executed instruction
-        int cycles_taken = cpu.step();
-        
-        // Pass those cycles to the PPU
-        ppu.step(cycles_taken);
+        // 3. HARDWARE BATCHING: Führe einen kompletten Bildaufbau am Stück aus
+        int cycles_this_frame = 0;
+        while (cycles_this_frame < CYCLES_PER_FRAME) {
+            int cycles_taken = cpu.step();
+            ppu.step(cycles_taken);
+            cycles_this_frame += cycles_taken;
+        }
 
-        // If the PPU finished a full 144-line frame, draw it to the window
+        // 4. Wenn die PPU fertig ist, das Bild auf das Windows-Fenster zeichnen
         if (ppu.frame_complete) {
             ppu.frame_complete = false;
             InvalidateRect(hwnd, NULL, FALSE); // Triggers WM_PAINT
             UpdateWindow(hwnd);
-            
-            // Sleep for ~16ms to target 60FPS (Very basic timing)
-            Sleep(16); 
+        }
+
+        // 5. PRÄZISES TIMING: Warten, bis die ~16.74ms für diesen Frame um sind
+        auto frame_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> time_taken = frame_end - frame_start;
+
+        if (time_taken.count() < TARGET_FRAME_TIME_MS) {
+            std::chrono::duration<double, std::milli> sleep_time(TARGET_FRAME_TIME_MS - time_taken.count());
+            std::this_thread::sleep_for(sleep_time);
         }
     }
 
