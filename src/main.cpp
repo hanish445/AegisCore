@@ -49,7 +49,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     (void)lpCmdLine;
 
     // 1. Load the ROM (Hardcoded for now, or use lpCmdLine)
-    if (!mmu.load_rom("fuzzer/corpus/01-special.gb")) {
+    if (!mmu.load_rom("fuzzer/corpus/tetris.gb")) {
         MessageBox(NULL, "Failed to load ROM!", "AegisCore Error", MB_ICONERROR);
         return 1;
     }
@@ -85,11 +85,26 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             DispatchMessage(&msg);
         }
 
-        // Execute 1 CPU instruction
-        cpu.step();
+        // --- Phase 2.3: Joypad Input ---
+        uint8_t action = 0x0F;
+        uint8_t dir = 0x0F;
+
+        // Action Buttons: Start (Enter), Select (Shift), B (Z), A (X)
+        if (GetAsyncKeyState(VK_RETURN) & 0x8000) action &= ~0x08; // Start
+        if (GetAsyncKeyState(VK_SHIFT)  & 0x8000) action &= ~0x04; // Select
+        if (GetAsyncKeyState('Z')       & 0x8000) action &= ~0x02; // B
+        if (GetAsyncKeyState('X')       & 0x8000) action &= ~0x01; // A
+
+        // Direction Pad: Arrow Keys
+        if (GetAsyncKeyState(VK_DOWN)   & 0x8000) dir &= ~0x08; // Down
+        if (GetAsyncKeyState(VK_UP)     & 0x8000) dir &= ~0x04; // Up
+        if (GetAsyncKeyState(VK_LEFT)   & 0x8000) dir &= ~0x02; // Left
+        if (GetAsyncKeyState(VK_RIGHT)  & 0x8000) dir &= ~0x01; // Right
+
+        mmu.update_joypad(action, dir);
 
         // TODO: Replace '4' with the actual cycle count of the executed instruction
-        int cycles_taken = 4; 
+        int cycles_taken = cpu.step();
         
         // Pass those cycles to the PPU
         ppu.step(cycles_taken);

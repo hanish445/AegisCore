@@ -3,6 +3,25 @@
 #include <iomanip>
 #include <cstdlib> // For exit()
 
+const int BASE_CYCLES[256] = {
+    4, 12, 8,  8,  4,  4,  12, 4,  20, 8,  8,  8,  4,  4,  12, 4,
+    4, 12, 8,  8,  4,  4,  12, 4,  12, 8,  8,  8,  4,  4,  12, 4,
+    8, 12, 8,  8,  4,  4,  12, 4,  8,  8,  8,  8,  4,  4,  12, 4,
+    8, 12, 8,  8,  12, 12, 12, 4,  8,  8,  8,  8,  4,  4,  12, 4,
+    4, 4,  4,  4,  4,  4,  8,  4,  4,  4,  4,  4,  4,  4,  8,  4,
+    4, 4,  4,  4,  4,  4,  8,  4,  4,  4,  4,  4,  4,  4,  8,  4,
+    4, 4,  4,  4,  4,  4,  8,  4,  4,  4,  4,  4,  4,  4,  8,  4,
+    8, 8,  8,  8,  8,  8,  4,  8,  4,  4,  4,  4,  4,  4,  8,  4,
+    4, 4,  4,  4,  4,  4,  8,  4,  4,  4,  4,  4,  4,  4,  8,  4,
+    4, 4,  4,  4,  4,  4,  8,  4,  4,  4,  4,  4,  4,  4,  8,  4,
+    4, 4,  4,  4,  4,  4,  8,  4,  4,  4,  4,  4,  4,  4,  8,  4,
+    4, 4,  4,  4,  4,  4,  8,  4,  4,  4,  4,  4,  4,  4,  8,  4,
+    8, 12, 12, 16, 12, 16, 8,  16, 8,  16, 12, 4,  12, 24, 8,  16,
+    8, 12, 12, 0,  12, 16, 8,  16, 8,  16, 12, 0,  12, 0,  8,  16,
+    12,12, 8,  0,  0,  16, 8,  16, 16, 4,  16, 0,  0,  0,  8,  16,
+    12,12, 8,  4,  0,  16, 8,  16, 12, 8,  16, 4,  0,  0,  8,  16
+};
+
 namespace Aegis {
 
 CPU::CPU(Registers& registers, MMU& memory_unit) 
@@ -105,15 +124,98 @@ uint8_t CPU::dec8(uint8_t value) {
     return result;
 }
 
-void CPU::step() {
-    uint8_t opcode = mmu.read8(reg.pc);
-    
-    //this step temporarily commented
-    //std::cout << "[CPU] Executing PC: 0x" << std::hex << std::setw(4) << std::setfill('0') << reg.pc 
-              //<< " | Opcode: 0x" << std::setw(2) << static_cast<int>(opcode) << std::dec << std::endl;
+void CPU::update_timers(int cycles) {
+    // 1. DIV Register (increments at 16,384 Hz -> every 256 T-cycles)
+    divider_counter += cycles;
+    if (divider_counter >= 256) {
+        divider_counter -= 256;
+        uint8_t div = mmu.read8(0xFF04);
+        mmu.write8(0xFF04, div + 1); // Note: bypassing write protection for DIV reset
+    }
 
+    // 2. TIMA Timer
+    uint8_t tac = mmu.read8(0xFF07);
+    if (tac & 0x04) { // Is timer enabled?
+        timer_counter += cycles;
+        
+        // Determine threshold based on TAC bits 0-2
+        int threshold = 1024; // Default for 4096 Hz
+        switch (tac & 0x03) {
+            case 0: threshold = 1024; break; // 4096 Hz
+            case 1: threshold = 16;   break; // 262143 Hz
+            case 2: threshold = 64;   break; // 65536 Hz
+            case 3: threshold = 256;  break; // 16384 Hz
+        }
+
+        while (timer_counter >= threshold) {
+            timer_counter -= threshold;
+            uint8_t tima = mmu.read8(0xFF05);
+            if (tima == 0xFF) {
+                // TIMA overflow! Reset to TMA and request Timer Interrupt (Bit 2 of 0xFF0F)
+                mmu.write8(0xFF05, mmu.read8(0xFF06)); // Reload with TMA (0xFF06)
+                mmu.write8(0xFF0F, mmu.read8(0xFF0F) | 0x04); 
+            } else {
+                mmu.write8(0xFF05, tima + 1);
+            }
+        }
+    }
+}
+
+int CPU::step() {
+    check_interrupts();
+
+    uint8_t opcode = mmu.read8(reg.pc);
     reg.pc++;
+
+    int cycles = BASE_CYCLES[opcode];
+
+    if(opcode == 0xCB) {
+        uint8_t cb_opcode = mmu.read8(reg.pc);
+        cycles = ((cb_opcode & 0x07) == 0x06) ? 16 : 8;
+    }
+
     execute_opcode(opcode);
+    update_timers(cycles);
+
+    return cycles;
+}
+
+void CPU::check_interrupts() {
+    if (ime) {
+        uint8_t ie = mmu.read8(0xFFFF);
+        uint8_t if_reg = mmu.read8(0xFF0F);
+        uint8_t masked = ie & if_reg;
+
+        if (masked > 0) {
+            // Find which interrupt was triggered (prioritized from bit 0 to 4)
+            int interrupt_bit = 0;
+            for (int i = 0; i < 5; i++) {
+                if (masked & (1 << i)) {
+                    interrupt_bit = i;
+                    break;
+                }
+            }
+
+            // Disable further interrupts
+            ime = false;
+
+            // Clear the specific bit in IF
+            mmu.write8(0xFF0F, if_reg & ~(1 << interrupt_bit));
+
+            // Push current PC to the stack
+            mmu.write8(--reg.sp, (reg.pc >> 8) & 0xFF);
+            mmu.write8(--reg.sp, reg.pc & 0xFF);
+
+            // Jump to the corresponding interrupt vector address
+            switch (interrupt_bit) {
+                case 0: reg.pc = 0x0040; break; // VBlank
+                case 1: reg.pc = 0x0048; break; // LCD STAT
+                case 2: reg.pc = 0x0050; break; // Timer
+                case 3: reg.pc = 0x0058; break; // Serial
+                case 4: reg.pc = 0x0060; break; // Joypad
+            }
+        }
+    }
 }
 
 void CPU::execute_opcode(uint8_t opcode) {

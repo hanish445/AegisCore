@@ -10,6 +10,23 @@ MMU::MMU() {
 }
 
 uint8_t MMU::read8(uint16_t address) const {
+    // Intercept Joypad reads
+    if (address == 0xFF00) {
+        // Read the selection bits the CPU just wrote (bits 4 and 5)
+        // Note: Assuming your raw memory array is called `memory` or similar. 
+        // Adjust the variable name below to match your actual internal array.
+        uint8_t request = memory[0xFF00]; 
+        
+        uint8_t val = 0xCF; // Bits 6 & 7 are always 1, bits 0-3 default to 1 (unpressed)
+        
+        // Bit 5 (0x20) = Select Action Buttons
+        if (!(request & 0x20)) val &= joypad_action; 
+        
+        // Bit 4 (0x10) = Select Direction Buttons
+        if (!(request & 0x10)) val &= joypad_dir;    
+        
+        return val;
+    }
     return memory[address];
 }
 
@@ -64,6 +81,22 @@ bool MMU::load_rom(const std::string& filepath) {
     
     file.close();
     return true;
+}
+
+void MMU::update_joypad(uint8_t action, uint8_t dir) {
+    // If a button transitioned from unpressed (1) to pressed (0), trigger interrupt
+    bool button_pressed = false;
+    if ((joypad_action & ~action) || (joypad_dir & ~dir)) {
+        button_pressed = true;
+    }
+
+    joypad_action = action;
+    joypad_dir = dir;
+
+    // Request Joypad Interrupt in the IF register (0xFF0F)
+    if (button_pressed) {
+        write8(0xFF0F, read8(0xFF0F) | 0x10); 
+    }
 }
 
 } // namespace Aegis
