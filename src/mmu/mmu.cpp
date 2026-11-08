@@ -37,6 +37,20 @@ void MMU::write8(uint16_t address, uint8_t value) {
         // Do not overwrite the game data!
         return; 
     }
+    //DIV Register Reset Side-Effect
+    if(address == 0xFF04){
+        memory[0xFF04] = 0;
+        return;
+    }
+    //OAM DMA transfer
+    if(address == 0xFF46){
+        uint16_t source_base = static_cast<uint16_t>(value) << 8;
+        for(int i = 0; i < 160; i++) {
+            uint8_t b = read8(source_base + i);
+            memory[0xFE00 + i] = b;
+        }
+        return;
+    }
     if(address == 0xFF02 && value == 0x81){
         //0x81 --> the CPU is requesting a serial transfer
         //intercept the character currently sitting in 0xFF01 and print it natively
