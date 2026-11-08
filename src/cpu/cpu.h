@@ -11,6 +11,11 @@ private:
     MMU& mmu;
     bool ime = false;
 
+    int divider_counter = 0;
+    int timer_counter = 0;
+    void update_timers(int cycles);
+    void check_interrupts();
+
     // Fetch helpers
     uint8_t fetch8();
     uint16_t fetch16();
@@ -31,7 +36,7 @@ private:
 
 public:
     CPU(Registers& registers, MMU& memory_unit);
-    void step();
+    int step();
 };
 
 } // namespace Aegis

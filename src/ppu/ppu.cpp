@@ -36,6 +36,7 @@ void PPU::step(int cpu_cycles) {
         else if (current_line == 144) {
             frame_complete = true;
             // TODO: Trigger VBlank Interrupt here later
+            mmu.write8(0xFF0F, mmu.read8(0xFF0F) | 0x01);
         }
         // Scanline 153 resets back to 0
         else if (current_line > 153) {
