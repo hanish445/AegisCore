@@ -10,56 +10,118 @@ MMU::MMU() {
 }
 
 uint8_t MMU::read8(uint16_t address) const {
-    // Intercept Joypad reads
     if (address == 0xFF00) {
-        // Read the selection bits the CPU just wrote (bits 4 and 5)
-        // Note: Assuming your raw memory array is called `memory` or similar. 
-        // Adjust the variable name below to match your actual internal array.
         uint8_t request = memory[0xFF00]; 
-        
-        uint8_t val = 0xCF; // Bits 6 & 7 are always 1, bits 0-3 default to 1 (unpressed)
-        
-        // Bit 5 (0x20) = Select Action Buttons
+        uint8_t val = 0xCF; 
         if (!(request & 0x20)) val &= joypad_action; 
-        
-        // Bit 4 (0x10) = Select Direction Buttons
         if (!(request & 0x10)) val &= joypad_dir;    
-        
         return val;
     }
+
+    // ROM Bank 0 (0x0000 - 0x3FFF)
+    if (address < 0x4000) {
+        if (rom_data.empty()) return 0;
+        return rom_data[address];
+    }
+
+    // Switched ROM Bank (0x4000 - 0x7FFF)
+    if (address < 0x8000) {
+        if (rom_data.empty()) return 0;
+        int bank = current_rom_bank;
+        if (cart_type == MBC3 && bank == 0) bank = 1;
+        size_t mapped_address = (bank * 0x4000) + (address - 0x4000);
+        if (mapped_address < rom_data.size()) {
+            return rom_data[mapped_address];
+        }
+        return 0;
+    }
+
+    // External Cartridge RAM / RTC (0xA000 - 0xBFFF)
+    if (address >= 0xA000 && address < 0xC000) {
+        if (!ram_enabled) return 0xFF;
+        if (cart_type == MBC3 && current_ram_bank >= 0x08 && current_ram_bank <= 0x0C) {
+            return 0; // RTC Register stub
+        }
+        if (external_ram.empty()) return 0xFF;
+        size_t ram_address = (current_ram_bank * 0x2000) + (address - 0xA000);
+        if (ram_address < external_ram.size()) {
+            return external_ram[ram_address];
+        }
+        return 0xFF;
+    }
+
     return memory[address];
 }
 
 void MMU::write8(uint16_t address, uint8_t value) {
-    // Address space 0x0000 to 0x7FFF is the ROM area.
-    // Real hardware ignores writes to ROM (unless it's an MBC command, which we skip for now).
-    if (address < 0x8000) {
-        // Do not overwrite the game data!
-        return; 
+    if (cart_type == MBC1 || cart_type == MBC3) {
+        if (address < 0x2000) {
+            ram_enabled = ((value & 0x0F) == 0x0A);
+            return;
+        }
+        if (address < 0x4000) {
+            int bank = value & (cart_type == MBC3 ? 0x7F : 0x1F);
+            if (bank == 0) bank = 1;
+            current_rom_bank = bank;
+            return;
+        }
+        if (address < 0x6000) {
+            if (cart_type == MBC3) {
+                current_ram_bank = value; // RAM bank 0-3 or RTC register 0x08-0x0C
+            } else {
+                if (banking_mode) {
+                    current_ram_bank = value & 0x03;
+                } else {
+                    current_rom_bank = ((value & 0x03) << 5) | (current_rom_bank & 0x1F);
+                }
+            }
+            return;
+        }
+        if (address < 0x8000) {
+            banking_mode = (value & 0x01);
+            return;
+        }
+    } else if (address < 0x8000) {
+        return; // Ignore ROM-only writes
     }
-    //DIV Register Reset Side-Effect
-    if(address == 0xFF04){
+
+    // External RAM Writes (0xA000 - 0xBFFF)
+    if (address >= 0xA000 && address < 0xC000) {
+        if (ram_enabled) {
+            if (cart_type == MBC3 && current_ram_bank >= 0x08 && current_ram_bank <= 0x0C) {
+                return; // RTC write stub
+            }
+            if (!external_ram.empty()) {
+                size_t ram_address = (current_ram_bank * 0x2000) + (address - 0xA000);
+                if (ram_address < external_ram.size()) {
+                    external_ram[ram_address] = value;
+                }
+            }
+        }
+        return;
+    }
+
+    if (address == 0xFF04) {
         memory[0xFF04] = 0;
         return;
     }
-    //OAM DMA transfer
-    if(address == 0xFF46){
+
+    if (address == 0xFF46) {
         uint16_t source_base = static_cast<uint16_t>(value) << 8;
-        for(int i = 0; i < 160; i++) {
+        for (int i = 0; i < 160; i++) {
             uint8_t b = read8(source_base + i);
             memory[0xFE00 + i] = b;
         }
         return;
     }
-    if(address == 0xFF02 && value == 0x81){
-        //0x81 --> the CPU is requesting a serial transfer
-        //intercept the character currently sitting in 0xFF01 and print it natively
+
+    if (address == 0xFF02 && value == 0x81) {
         char c = static_cast<char>(memory[0xFF01]);
         std::cout << c << std::flush;
-
         memory[0xFF02] = 0;
         return;
     }
+
     memory[address] = value;
 }
 
@@ -77,23 +139,42 @@ void MMU::write16(uint16_t address, uint16_t value) {
     write8(address + 1, (value >> 8) & 0xFF);
 }
 
+// Update load_rom to support full variable-size files:
 bool MMU::load_rom(const std::string& filepath) {
-    std::ifstream file(filepath, std::ios::binary);
+    std::ifstream file(filepath, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
         std::cerr << "[MMU] Error: Could not open ROM file: " << filepath << std::endl;
         return false;
     }
 
-    // Read up to 32KB (0x8000 bytes) into the ROM area for flat unmapped games like Tetris
-    file.read(reinterpret_cast<char*>(memory.data()), 0x8000);
-    
-    if (file) {
-        std::cout << "[MMU] Loaded ROM: " << filepath << " successfully." << std::endl;
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+
+    rom_data.resize(size);
+    if (file.read(reinterpret_cast<char*>(rom_data.data()), size)) {
+        std::cout << "[MMU] Loaded ROM: " << filepath << " (" << size << " bytes) successfully." << std::endl;
     } else {
-        std::cout << "[MMU] Loaded partial ROM (less than 32KB) or hit EOF: " << filepath << std::endl;
+        std::cerr << "[MMU] Error: Failed to read ROM data." << std::endl;
+        return false;
     }
-    
     file.close();
+
+    // Automatically Detect Cartridge Type from Header at 0x0147
+    if (rom_data.size() > 0x0147) {
+        uint8_t type_byte = rom_data[0x0147];
+        if (type_byte >= 0x01 && type_byte <= 0x03) {
+            cart_type = MBC1;
+            std::cout << "[MMU] Cartridge Type: MBC1 detected." << std::endl;
+        } else if (type_byte >= 0x0F && type_byte <= 0x13) {
+            cart_type = MBC3;
+            std::cout << "[MMU] Cartridge Type: MBC3 (Pokemon compatible) detected." << std::endl;
+        } else {
+            cart_type = ROM_ONLY;
+            std::cout << "[MMU] Cartridge Type: ROM-Only detected." << std::endl;
+        }
+    }
+
+    external_ram.resize(0x8000, 0); // Allocate 32KB max external RAM
     return true;
 }
 

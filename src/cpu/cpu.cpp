@@ -901,10 +901,11 @@ void CPU::execute_opcode(uint8_t opcode) {
         case 0x6F: reg.l = reg.a; break; // LD L, A
 
         default:
-            std::cerr << "[CPU] Fatal: Unimplemented Opcode 0x" 
+            std::cerr << "[CPU] Warning: Unimplemented Opcode 0x" 
                       << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(opcode) 
                       << " at PC 0x" << (reg.pc - 1) << std::endl;
-            std::exit(1); 
+            // Do not exit(1) here so the emulator can keep running or display frames
+            std::exit(1);
     }
 }
 

@@ -2,14 +2,29 @@
 #include <cstdint>
 #include <array>
 #include <string>
+#include <vector>
 
 namespace Aegis {
+
+enum CartridgeType {
+    ROM_ONLY = 0,
+    MBC1, 
+    MBC3
+};
 
 class MMU {
 private:
     // The Game Boy has a 16-bit address bus, meaning it can access 64KB of memory.
     // 0x0000 - 0xFFFF
     std::array<uint8_t, 0x10000> memory{};
+    std::vector<uint8_t> rom_data;
+    std::vector<uint8_t> external_ram;
+
+    CartridgeType cart_type = ROM_ONLY;
+    int current_rom_bank = 1;
+    int current_ram_bank = 0;
+    bool ram_enabled = false;
+    bool banking_mode = false; //0 = ROM banking mode, 1 = RAM banking mode
 
 public:
     MMU();
