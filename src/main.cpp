@@ -2,7 +2,7 @@
 #include <string>
 #include "mmu/mmu.h"
 #include "cpu/registers.h"
-#include "cpu/cpu.h" // New inclusion
+#include "cpu/cpu.h"
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -19,19 +19,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    // Instantiate the CPU, passing references to the registers and MMU
     Aegis::CPU cpu(registers, mmu);
 
     std::cout << "[AegisCore] Entering main emulation loop..." << std::endl;
     
-    // Run the CPU for a maximum of 5 cycles just to test the loop
-    int cycle_limit = 5; 
-    
-    while (cycle_limit > 0) {
+    // Run infinitely (it will stop when std::exit(1) is called for an unknown opcode)
+    while (true) {
         cpu.step();
-        cycle_limit--;
     }
-    
-    std::cout << "[AegisCore] Emulation halted cleanly." << std::endl;
     return 0;
 }
