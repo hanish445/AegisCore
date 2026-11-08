@@ -12,36 +12,76 @@ PPU::PPU(MMU& memory_unit) : mmu(memory_unit) {
 void PPU::step(int cpu_cycles) {
     uint8_t lcd_control = mmu.read8(0xFF40);
     
-    // If LCD is disabled, reset scanline counter and LY
+    // If LCD is disabled, reset states
     if (!(lcd_control & 0x80)) {
         scanline_counter = 456;
         mmu.write8(0xFF44, 0); // LY = 0
+        set_lcd_mode(1);       // Default to VBlank mode when off
         return;
     }
 
     scanline_counter -= cpu_cycles;
 
+    uint8_t current_line = mmu.read8(0xFF44);
+
+    // Mode transitions during visible scanlines (0-143)
+    if (current_line < 144) {
+        if (scanline_counter <= 376 && scanline_counter > 204) {
+            set_lcd_mode(2); // OAM Scan
+        } else if (scanline_counter <= 204 && scanline_counter > 84) {
+            set_lcd_mode(3); // Pixel Transfer
+        } else if (scanline_counter <= 84 && scanline_counter > 0) {
+            set_lcd_mode(0); // HBlank
+        }
+    }
+
     if (scanline_counter <= 0) {
         scanline_counter += 456;
-        uint8_t current_line = mmu.read8(0xFF44);
-        
-        mmu.write8(0xFF44, current_line + 1);
-        current_line++; // Update local variable after writing
+        current_line++;
+        mmu.write8(0xFF44, current_line);
 
-        // Scanlines 0-143 are visible. Render them.
+        // Check LYC == LY coincidence interrupt
+        uint8_t lyc = mmu.read8(0xFF45);
+        uint8_t stat = mmu.read8(0xFF41);
+        if (current_line == lyc) {
+            stat |= 0x04; // Set coincidence flag
+            if (stat & 0x40) { // Coincidence interrupt enabled?
+                mmu.write8(0xFF0F, mmu.read8(0xFF0F) | 0x02); // LCD STAT Interrupt
+            }
+        } else {
+            stat &= ~0x04;
+        }
+        mmu.write8(0xFF41, stat);
+
         if (current_line < 144) {
             render_scanline();
         }
-        // Scanline 144 triggers VBlank (Frame complete)
         else if (current_line == 144) {
             frame_complete = true;
-            // TODO: Trigger VBlank Interrupt here later
-            mmu.write8(0xFF0F, mmu.read8(0xFF0F) | 0x01);
+            set_lcd_mode(1); // VBlank Mode
+            mmu.write8(0xFF0F, mmu.read8(0xFF0F) | 0x01); // VBlank Interrupt
+            if (stat & 0x10) {
+                mmu.write8(0xFF0F, mmu.read8(0xFF0F) | 0x02); // STAT VBlank Interrupt
+            }
         }
-        // Scanline 153 resets back to 0
         else if (current_line > 153) {
             mmu.write8(0xFF44, 0);
+            set_lcd_mode(2); // Restart cycle with OAM scan
         }
+    }
+}
+
+void PPU::set_lcd_mode(uint8_t mode) {
+    uint8_t stat = mmu.read8(0xFF41);
+    stat = (stat & ~0x03) | mode;
+    mmu.write8(0xFF41, stat);
+
+    // Trigger Mode-specific STAT interrupts
+    uint8_t if_reg = mmu.read8(0xFF0F);
+    if ((mode == 0 && (stat & 0x08)) ||  // HBlank interrupt
+        (mode == 1 && (stat & 0x10)) ||  // VBlank interrupt
+        (mode == 2 && (stat & 0x20))) {  // OAM interrupt
+        mmu.write8(0xFF0F, if_reg | 0x02);
     }
 }
 

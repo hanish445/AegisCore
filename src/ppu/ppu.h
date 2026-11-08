@@ -8,6 +8,8 @@ namespace Aegis{
             MMU& mmu;
             int scanline_counter = 456; //A scanline takes exactly 456 CPU clock cycles
 
+            void set_lcd_mode(uint8_t mode);
+
             //Internal rendering functions
             void render_scanline();
             void render_background();
