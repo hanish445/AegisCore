@@ -46,9 +46,34 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
 
 // Windows GUI Entry Point
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    std::string cmd = lpCmdLine;
+    bool headless = false;
+
+    // Prüfen, ob "--headless " übergeben wurde
+    size_t headless_pos = cmd.find("--headless ");
+    if (headless_pos != std::string::npos) {
+        headless = true;
+        cmd.erase(headless_pos, 11); // "--headless " aus dem Pfad löschen
+    }
+    
+    // Anführungszeichen trimmen (falls Windows sie bei Leerzeichen im Pfad setzt)
+    if (!cmd.empty() && cmd.front() == '"' && cmd.back() == '"') {
+        cmd = cmd.substr(1, cmd.length() - 2);
+    }
+    std::string rom_path = cmd;
+
+    if(!mmu.load_rom(rom_path)) return 1;
+
+    //Headless mode: infinite loop without windows-events, window or frame-pacing
+    if(headless) {
+        while(true){
+            int cycles_taken = cpu.step();
+            ppu.step(cycles_taken);
+        }
+    }
+
     // Suppress unused parameter warnings
     (void)hPrevInstance;
-    (void)lpCmdLine;
 
     // 1. Load the ROM (Hardcoded for now, or use lpCmdLine)
     if (!mmu.load_rom("fuzzer/corpus/tetris.gb")) {
