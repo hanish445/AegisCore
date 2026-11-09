@@ -4,6 +4,7 @@ build/logs/*
 
 fuzzer/__pychache__/
 fuzzer/corpus/*.gb
+fuzzer/*.gb
 *.pyc
 
 .DS_Store
