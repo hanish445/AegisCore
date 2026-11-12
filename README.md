@@ -1,4 +1,4 @@
-# AegisCore (v1.0.0): Dynamic Taint Analysis Engine & Binary Fuzzing Sandbox (Primarily also a GameBoy emulator)
+# AegisCore (v1.2.5): Dynamic Taint Analysis Engine & Binary Fuzzing Sandbox (Primarily also a GameBoy emulator)
 
 ## Overview
 
@@ -26,11 +26,10 @@ The development of AegisCore is divided into six distinct phases. The foundation
     Implementation of the CPU instruction set, registers, ALU operations, and the baseline PPU for rendering backgrounds and sprites to the 160x144 framebuffer.
 *   **Phase 3: Adjustments for Playability**
     Refinement of the emulator for actual usage, including Joypad input polling via the Win32 API, MBC1 cartridge banking, DIV/TIMA hardware timers, and frame-batching for smooth 60 FPS performance.
-
-### Upcoming Phases
-
 *   **Phase 4: Fuzzing & Logging (Simultaneous Python + JS)**
     Construction of external tooling to stress-test the emulator. A Python mutator will bombard the C++ engine with corrupted ROM data (bit-flips, magic-number injections). Upon crashing, the C++ engine will export diagnostic logs (trace.json), which a Node.js server will parse and display on a local web dashboard.
+
+### Upcoming Phases
 *   **Phase 5: Audio Processing Unit (APU) Emulation**
     Implementation of the DMG-01 audio hardware (Square, Wave, and Noise channels). This ensures complete emulation compatibility and opens a new surface area for the fuzzer to target audio registers (0xFF10 - 0xFF3F).
 *   **Phase 6: Dynamic Taint Analysis (DTA) Module**
