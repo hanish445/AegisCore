@@ -1,6 +1,6 @@
 {
   "name": "aegiscore-reporter",
-  "version": "1.0.0",
+  "version": "1.2.5",
   "description": "Crash reporting dashboard for AegisCore",
   "main": "server.js",
   "scripts": {
