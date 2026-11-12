@@ -12,6 +12,13 @@ private:
     bool ime = false;
     bool halted = false;
 
+    //Crash tracing
+    static const int TRACE_SIZE = 100;
+    uint16_t pc_trace[TRACE_SIZE] = {0};
+    uint8_t opcode_trace[TRACE_SIZE] = {0};
+    int trace_index = 0;
+    void dump_trace(uint8_t crashed_opcode);
+
     int divider_counter = 0;
     int timer_counter = 0;
     void update_timers(int cycles);

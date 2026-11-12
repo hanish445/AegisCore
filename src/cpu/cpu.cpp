@@ -169,7 +169,11 @@ int CPU::step() {
         return 4;
     }
 
+    //Record execution history before advancing PC
+    pc_trace[trace_index] = reg.pc;
     uint8_t opcode = mmu.read8(reg.pc);
+    opcode_trace[trace_index] = opcode;
+    trace_index = (trace_index + 1) % TRACE_SIZE; //Ring buffer wraps around
     reg.pc++;
 
     int cycles = BASE_CYCLES[opcode];
@@ -226,6 +230,61 @@ void CPU::check_interrupts() {
             case 4: reg.pc = 0x0060; break; // Joypad
         }
     }
+}
+
+void CPU::dump_trace(uint8_t crashed_opcode) {
+    std::ofstream out("crash_log.txt"); // Python script renames this to trace.json
+    if(!out.is_open()) return;
+
+    out << "{\n";
+
+    //Crash Info
+    out << "  \"crash_info\": {\n";
+    out << "    \"opcode\": \"0x" << std::hex << std::setw(2) << std::setfill('0') << (int)crashed_opcode << "\",\n";
+    out << "    \"pc\": \"0x" << std::hex << std::setw(4) << std::setfill('0') << (reg.pc - 1) << "\"\n";
+    out << "  },\n";
+
+    //Register state (decimal for easy reading, except PC/SP)
+    out << "  \"registers\": {\n";
+    out << "    \"a\": " << std::dec << (int)reg.a << ",\n";
+    out << "    \"f\": " << (int)reg.f << ",\n";
+    out << "    \"b\": " << (int)reg.b << ",\n";
+    out << "    \"c\": " << (int)reg.c << ",\n";
+    out << "    \"d\": " << (int)reg.d << ",\n";
+    out << "    \"e\": " << (int)reg.e << ",\n";
+    out << "    \"h\": " << (int)reg.h << ",\n";
+    out << "    \"l\": " << (int)reg.l << ",\n";
+    out << "    \"sp\": \"0x" << std::hex << std::setw(4) << std::setfill('0') << reg.sp << "\",\n";
+    out << "    \"pc\": \"0x" << std::hex << std::setw(4) << std::setfill('0') << reg.pc << "\"\n";
+    out << "  },\n";
+
+    //Instruction history (oldest to newest)
+    out << "  \"history\": [\n";
+    bool first = true;
+    for (int i = 0; i < TRACE_SIZE; i++) {
+        int idx = (trace_index + i) % TRACE_SIZE;
+        if (pc_trace[idx] == 0 && opcode_trace[idx] == 0) continue; // Skip empty slots on startup
+
+        if (!first) out << ",\n";
+        out << "    { \"pc\": \"0x" << std::hex << std::setw(4) << std::setfill('0') << pc_trace[idx]
+            << "\", \"opcode\": \"0x" << std::setw(2) << (int)opcode_trace[idx] << "\" }";
+        first = false;
+    }
+    out << "\n  ],\n";
+
+    //Memory vincinty (8 bytes before and 8 bytes after PC)
+    out << "  \"memory_vicinity\": [\n";
+    first = true;
+    uint16_t start_addr = (reg.pc - 1) - 8;
+    for (int i = 0; i < 16; i++) {
+        if (!first) out << ",\n";
+        out << "    \"0x" << std::hex << std::setw(2) << std::setfill('0') << (int)mmu.read8(start_addr + i) << "\"";
+        first = false;
+    }
+    out << "\n  ]\n";
+    
+    out << "}\n";
+    out.close();
 }
 
 void CPU::execute_opcode(uint8_t opcode) {
@@ -918,18 +977,9 @@ void CPU::execute_opcode(uint8_t opcode) {
         }
 
         default: {
-            // Öffne oder erstelle eine Logdatei im selben Ordner
-            std::ofstream log_file("crash_log.txt", std::ios::app);
-            if (log_file.is_open()) {
-                log_file << "[CPU] Warning: Unimplemented Opcode 0x" 
-                         << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(opcode) 
-                         << " at PC 0x" << (reg.pc - 1) << std::endl;
-                log_file.close();
-            }
-            // Beende das Programm wie bisher
+            dump_trace(opcode);
             std::exit(1);
         }
     }
 }
-
 } // namespace AegisS

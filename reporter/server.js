@@ -1,20 +1,56 @@
+const express = require('express');
 const http = require('http');
+const { Server } = require('socket.io');
 const fs = require('fs');
 const path = require('path');
+const { parseTrace } = require('./parser');
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 
 const PORT = 3000;
+const LOGS_DIR = path.join(__dirname, '..', 'build', 'logs');
 
-const server = http.createServer((req, res) => {
-    if(req.url == '/'){
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end('<h1>AegisCore Threat Report Dashbpard</h1><p>Waiting for DTA logs...</p>')
+// Serve frontend files from the 'public' directory
+app.use(express.static(path.join(__dirname, 'public')));
+
+// When a browser connects, send the most recent crash trace immediately
+io.on('connection', (socket) => {
+    console.log('Frontend dashboard connected.');
+    broadcastLatestTrace();
+});
+
+function broadcastLatestTrace() {
+    if (!fs.existsSync(LOGS_DIR)) return;
+    
+    // Find the newest JSON file
+    const files = fs.readdirSync(LOGS_DIR)
+        .filter(fn => fn.endsWith('.json'))
+        .map(fn => ({ name: fn, time: fs.statSync(path.join(LOGS_DIR, fn)).mtime.getTime() }))
+        .sort((a, b) => b.time - a.time);
+
+    if (files.length > 0) {
+        const latestFile = path.join(LOGS_DIR, files[0].name);
+        const traceData = parseTrace(latestFile);
+        if (traceData) {
+            io.emit('new_trace', traceData);
+        }
     }
-    else{
-        res.writeHead(404);
-        res.end('Not found');
+}
+
+// Watch the logs directory for newly generated traces from Python/C++
+if (!fs.existsSync(LOGS_DIR)) {
+    fs.mkdirSync(LOGS_DIR, { recursive: true });
+}
+
+fs.watch(LOGS_DIR, (eventType, filename) => {
+    if (filename && filename.endsWith('.json')) {
+        // Slight delay ensures C++ and Python are fully finished writing the file
+        setTimeout(broadcastLatestTrace, 100);
     }
 });
 
 server.listen(PORT, () => {
-    console.log(`[Reporter] Dashboard running at http://localhost:${PORT}`);
+    console.log(`Threat Reporting Dashboard running at http://localhost:${PORT}`);
 });
