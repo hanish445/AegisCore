@@ -12,4 +12,6 @@ Thumbs.db
 
 .vscode/.history/
 
+reporter/node_modules/
+
 *.txt

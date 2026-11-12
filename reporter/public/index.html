@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AegisCore Threat Dashboard</title>
+    <style>
+        body { font-family: 'Courier New', Courier, monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
+        h1 { color: #569cd6; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .card { background: #252526; padding: 15px; border-radius: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .card h2 { color: #ce9178; margin-top: 0; }
+        .danger { color: #f44747; font-weight: bold; font-size: 1.2em; }
+        ul { list-style: none; padding: 0; }
+        li { padding: 4px 0; border-bottom: 1px solid #333; }
+        .history-box { height: 300px; overflow-y: auto; background: #1e1e1e; padding: 10px; border: 1px solid #333; }
+    </style>
+</head>
+<body>
+    <h1>🛡️ AegisCore Threat Dashboard</h1>
+    
+    <div class="grid">
+        <!-- Crash Details -->
+        <div class="card">
+            <h2>Latest Crash Info</h2>
+            <p><strong>Opcode:</strong> <span id="crash-opcode" class="danger">Waiting...</span></p>
+            <p><strong>Program Counter:</strong> <span id="crash-pc">Waiting...</span></p>
+        </div>
+
+        <!-- Registers -->
+        <div class="card">
+            <h2>CPU Registers</h2>
+            <ul id="registers-list">
+                <li>Waiting for trace data...</li>
+            </ul>
+        </div>
+
+        <!-- Execution History -->
+        <div class="card" style="grid-column: span 2;">
+            <h2>Execution History (Last 100 Instructions)</h2>
+            <div class="history-box" id="history-list">
+                Waiting for trace data...
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        socket.on('new_trace', (data) => {
+            // Update Crash Info
+            document.getElementById('crash-opcode').innerText = data.crash_info.opcode;
+            document.getElementById('crash-pc').innerText = data.crash_info.pc;
+
+            // Update Registers
+            const regList = document.getElementById('registers-list');
+            regList.innerHTML = '';
+            for (const [reg, val] of Object.entries(data.registers)) {
+                regList.innerHTML += `<li><strong>${reg.toUpperCase()}:</strong> ${val}</li>`;
+            }
+
+            // Update History
+            const histList = document.getElementById('history-list');
+            histList.innerHTML = data.history.map((h, i) => 
+                `<div>[${i}] PC: <strong>${h.pc}</strong> -> Opcode: ${h.opcode}</div>`
+            ).join('');
+            
+            // Auto-scroll to the bottom of the history (the crash point)
+            histList.scrollTop = histList.scrollHeight;
+        });
+    </script>
+</body>
+</html>

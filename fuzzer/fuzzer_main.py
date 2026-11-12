@@ -49,7 +49,7 @@ def run_fuzzer(binary_path, seed_rom):
                 shutil.copy(test_rom, crash_rom_dest)
                 
                 # Das C++ Crash-Log umbenennen und verschieben
-                cxx_log = os.path.join(base_dir, "..", "crash_log.txt")
+                cxx_log = os.path.join(base_dir, "crash_log.txt")
                 if os.path.exists(cxx_log):
                     json_dest = os.path.join(logs_dir, f"trace_{timestamp}.json")
                     shutil.move(cxx_log, json_dest)
